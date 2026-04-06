@@ -76,3 +76,81 @@ library BPSafeERC20 {
         address(token).functionCallOptionalReturn(
             abi.encodeWithSelector(token.transferFrom.selector, from, to, amount)
         );
+    }
+
+    function safeApprove(IERC20Minimal token, address spender, uint256 amount) internal {
+        address(token).functionCallOptionalReturn(abi.encodeWithSelector(token.approve.selector, spender, amount));
+    }
+}
+
+library BPMath {
+    function min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
+    }
+
+    function max(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a : b;
+    }
+
+    function absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a >= b ? (a - b) : (b - a);
+    }
+
+    function sqrt(uint256 x) internal pure returns (uint256 y) {
+        if (x == 0) return 0;
+        uint256 z = (x + 1) / 2;
+        y = x;
+        while (z < y) {
+            y = z;
+            z = (x / z + z) / 2;
+        }
+    }
+
+    function clamp(uint256 x, uint256 lo, uint256 hi) internal pure returns (uint256) {
+        if (x < lo) return lo;
+        if (x > hi) return hi;
+        return x;
+    }
+}
+
+library BPStrings {
+    bytes16 private constant _HEX = "0123456789abcdef";
+
+    function toString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) return "0";
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
+    }
+
+    function toHexString(uint256 value, uint256 length) internal pure returns (string memory) {
+        bytes memory buffer = new bytes(2 * length + 2);
+        buffer[0] = "0";
+        buffer[1] = "x";
+        for (uint256 i = 2 * length + 1; i > 1; --i) {
+            buffer[i] = _HEX[value & 0xf];
+            value >>= 4;
+        }
+        return string(buffer);
+    }
+}
+
+library BPECDSA {
+    error BPECDSA_BadSig();
+    error BPECDSA_BadS();
+    error BPECDSA_BadV();
+
+    // secp256k1n/2 per EIP-2
+    uint256 private constant _SECP256K1N_DIV_2 =
+        0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
+
