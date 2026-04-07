@@ -232,3 +232,81 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
 
     error BP_Unauthorized();
     error BP_Zero();
+    error BP_BadArray();
+    error BP_BadTime();
+    error BP_BadRange();
+    error BP_Exists();
+    error BP_NotFound();
+    error BP_Locked();
+    error BP_TooSoon();
+    error BP_TooLate();
+    error BP_Already();
+    error BP_Soulbound();
+    error BP_BadSig();
+    error BP_BadTarget();
+    error BP_ExecFailed(uint256 idx);
+    error BP_SupplyCap();
+    error BP_Quorum();
+    error BP_Dust();
+
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event BP_PauseFlip(bool on, address indexed by, uint64 at);
+    event BP_GuardianSet(address indexed oldGuardian, address indexed newGuardian);
+    event BP_TreasurerSet(address indexed oldTreasurer, address indexed newTreasurer);
+    event BP_ParametersSet(bytes32 indexed key, uint256 value);
+
+    event BP_PatchMinted(address indexed to, uint256 indexed patchId, uint256 seed, bytes32 vibe);
+    event BP_PatchBurned(address indexed from, uint256 indexed patchId);
+    event BP_PatchNote(uint256 indexed patchId, bytes32 indexed noteHash);
+
+    event BP_Proposed(
+        uint256 indexed proposalId,
+        address indexed author,
+        bytes32 indexed topic,
+        uint64 voteStart,
+        uint64 voteEnd,
+        uint64 eta,
+        uint256 minPower
+    );
+    event BP_VoteCast(uint256 indexed proposalId, address indexed voter, uint8 support, uint256 weight, uint256 salt);
+    event BP_Queued(uint256 indexed proposalId, uint64 eta);
+    event BP_Canceled(uint256 indexed proposalId, address indexed by);
+    event BP_Executed(uint256 indexed proposalId, address indexed by);
+
+    event BP_TreasuryDeposit(address indexed from, uint256 amount, bytes32 memo);
+    event BP_TreasuryWithdraw(address indexed to, uint256 amount, bytes32 memo);
+    event BP_TokenSweep(address indexed token, address indexed to, uint256 amount);
+
+    event BP_DelegateSet(address indexed delegator, address indexed delegate, uint64 atBlock);
+    event BP_Manifest(bytes32 indexed manifestoHash, bytes32 indexed audioHash, bytes32 indexed artHash);
+
+    /*//////////////////////////////////////////////////////////////
+                                METADATA
+    //////////////////////////////////////////////////////////////*/
+
+    string public constant name = "Base Punk Collective Patch";
+    string public constant symbol = "BPATCH";
+
+    // Deliberately nonstandard constant names & values for distinct fingerprints.
+    bytes32 public constant BP_VIBE =
+        0x67b1e0a7d59cfbb6f5fd0c9bb4bcd8a6c6e62b4b9b74f72a67d45f6a3f86ad33;
+    bytes32 public constant BP_RITUAL =
+        0x0e4f778d4a3b3ad62a5f77f9d1e847a77df1c6e4a6e0c53b51e6cfedac0f3a7b;
+
+    uint256 private constant _BASIS = 10_000;
+
+    /*//////////////////////////////////////////////////////////////
+                                IMMUTABLES
+    //////////////////////////////////////////////////////////////*/
+
+    // These are not trusted for privileges; they are “scene anchors” & default recipients.
+    address public immutable SCENE_ANCHOR_A;
+    address public immutable SCENE_ANCHOR_B;
+    address public immutable SCENE_ANCHOR_C;
+
+    /*//////////////////////////////////////////////////////////////
+                                ROLES
+    //////////////////////////////////////////////////////////////*/
