@@ -310,3 +310,81 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
     /*//////////////////////////////////////////////////////////////
                                 ROLES
     //////////////////////////////////////////////////////////////*/
+
+    address public guardian;
+    address public treasurer;
+
+    modifier onlyGuardian() {
+        if (msg.sender != guardian) revert BP_Unauthorized();
+        _;
+    }
+
+    modifier onlyTreasurer() {
+        if (msg.sender != treasurer) revert BP_Unauthorized();
+        _;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                PATCH (SOULBOUND ERC721-LIKE)
+    //////////////////////////////////////////////////////////////*/
+
+    mapping(uint256 => address) private _ownerOf;
+    mapping(address => uint256) private _balanceOf;
+    mapping(uint256 => address) private _getApproved;
+    mapping(address => mapping(address => bool)) private _isApprovedForAll;
+
+    uint256 public totalMinted;
+    uint256 public burned;
+    uint256 public immutable supplyCap;
+
+    mapping(uint256 => bytes32) public patchVibe; // extra on-chain flavor
+    mapping(uint256 => bytes32) public patchNoteHash;
+
+    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
+    event Approval(address indexed owner, address indexed spender, uint256 indexed tokenId);
+    event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
+
+    /*//////////////////////////////////////////////////////////////
+                                GOVERNANCE SNAPSHOT
+    //////////////////////////////////////////////////////////////*/
+
+    // Delegate system (not a token transfer system; patches are soulbound).
+    mapping(address => address) public delegates;
+    mapping(address => uint256) public nonces;
+
+    // Vote checkpoints (single weight per address, but tracked by block for governance)
+    struct Checkpoint {
+        uint32 fromBlock;
+        uint224 votes;
+    }
+    mapping(address => Checkpoint[]) private _checkpoints;
+    Checkpoint[] private _totalCheckpoints;
+
+    /*//////////////////////////////////////////////////////////////
+                                PROPOSALS + TIMELOCK
+    //////////////////////////////////////////////////////////////*/
+
+    // governance parameters (settable by governance execution only)
+    uint256 public votingDelayBlocks;
+    uint256 public votingPeriodBlocks;
+    uint256 public timelockDelaySeconds;
+    uint256 public proposalThresholdBps; // bps of total votes required to propose
+    uint256 public quorumBps; // bps of total votes required for validity
+    uint256 public maxActions;
+    uint256 public maxCalldataBytes;
+
+    struct Action {
+        address target;
+        uint256 value;
+        bytes data;
+    }
+
+    struct Proposal {
+        address author;
+        bytes32 topic;
+        uint64 voteStart;
+        uint64 voteEnd;
+        uint64 eta;
+        bool queued;
+        bool executed;
+        bool canceled;
