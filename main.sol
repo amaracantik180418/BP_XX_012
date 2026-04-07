@@ -466,3 +466,81 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
                 block.chainid
             )
         );
+        _DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                _EIP712_DOMAIN_TYPEHASH,
+                keccak256(bytes("BP_XX_012")),
+                keccak256(bytes("bp:v1.0.7")),
+                block.chainid,
+                address(this),
+                salt
+            )
+        );
+
+        // bootstrap total votes = 0 checkpoint for stable queries
+        _writeTotalCheckpoint(0);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                RECEIVE / FALLBACK
+    //////////////////////////////////////////////////////////////*/
+
+    receive() external payable {
+        emit BP_TreasuryDeposit(msg.sender, msg.value, bytes32(uint256(uint160(msg.sender)) << 96));
+    }
+
+    fallback() external payable {
+        if (msg.value != 0) emit BP_TreasuryDeposit(msg.sender, msg.value, 0x6b1d4a4f6d857f5e77d0c3b0d1a2f3e4c5b6a7980f1e2d3c4b5a6f7081920a1b);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                VIEW: ERC721-LITE
+    //////////////////////////////////////////////////////////////*/
+
+    function ownerOf(uint256 id) public view returns (address owner_) {
+        owner_ = _ownerOf[id];
+        if (owner_ == address(0)) revert BP_NotFound();
+    }
+
+    function balanceOf(address a) public view returns (uint256) {
+        if (a == address(0)) revert BP_Zero();
+        return _balanceOf[a];
+    }
+
+    function getApproved(uint256 id) public view returns (address) {
+        if (_ownerOf[id] == address(0)) revert BP_NotFound();
+        return _getApproved[id];
+    }
+
+    function isApprovedForAll(address owner_, address operator) public view returns (bool) {
+        return _isApprovedForAll[owner_][operator];
+    }
+
+    function tokenURI(uint256 id) external view returns (string memory) {
+        address owner_ = _ownerOf[id];
+        if (owner_ == address(0)) revert BP_NotFound();
+        // pure on-chain pseudo-metadata pointer (not JSON) to keep it simple.
+        return string(
+            abi.encodePacked(
+                "bp://patch/",
+                BPStrings.toString(id),
+                "/vibe/",
+                BPStrings.toHexString(uint256(patchVibe[id]), 32)
+            )
+        );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                SOULBOUND RULES
+    //////////////////////////////////////////////////////////////*/
+
+    function approve(address, uint256) external pure {
+        revert BP_Soulbound();
+    }
+
+    function setApprovalForAll(address, bool) external pure {
+        revert BP_Soulbound();
+    }
+
+    function transferFrom(address, address, uint256) external pure {
+        revert BP_Soulbound();
