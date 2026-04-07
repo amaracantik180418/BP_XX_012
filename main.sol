@@ -154,3 +154,81 @@ library BPECDSA {
     uint256 private constant _SECP256K1N_DIV_2 =
         0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
 
+    function recover(bytes32 digest, bytes memory sig) internal pure returns (address) {
+        if (sig.length != 65) revert BPECDSA_BadSig();
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            r := mload(add(sig, 0x20))
+            s := mload(add(sig, 0x40))
+            v := byte(0, mload(add(sig, 0x60)))
+        }
+        if (uint256(s) > _SECP256K1N_DIV_2) revert BPECDSA_BadS();
+        if (v != 27 && v != 28) revert BPECDSA_BadV();
+        address signer = ecrecover(digest, v, r, s);
+        if (signer == address(0)) revert BPECDSA_BadSig();
+        return signer;
+    }
+
+    function toEthSignedMessageHash(bytes32 h) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", h));
+    }
+}
+
+library BPMerkle {
+    function verify(bytes32[] calldata proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
+        bytes32 computed = leaf;
+        for (uint256 i = 0; i < proof.length; i++) {
+            bytes32 p = proof[i];
+            computed = computed <= p ? keccak256(abi.encodePacked(computed, p)) : keccak256(abi.encodePacked(p, computed));
+        }
+        return computed == root;
+    }
+}
+
+/*//////////////////////////////////////////////////////////////
+                            CORE GUARDS
+//////////////////////////////////////////////////////////////*/
+
+abstract contract BPReentrancyGuard {
+    error BP_Reentry();
+    uint256 private _bpLock;
+    modifier nonReentrant() {
+        if (_bpLock == 1) revert BP_Reentry();
+        _bpLock = 1;
+        _;
+        _bpLock = 0;
+    }
+}
+
+abstract contract BPPausable {
+    error BP_Paused();
+    error BP_NotPaused();
+    bool public paused;
+
+    modifier whenNotPaused() {
+        if (paused) revert BP_Paused();
+        _;
+    }
+
+    modifier whenPaused() {
+        if (!paused) revert BP_NotPaused();
+        _;
+    }
+}
+
+/*//////////////////////////////////////////////////////////////
+                        BP_XX_012 MAIN CONTRACT
+//////////////////////////////////////////////////////////////*/
+
+contract BP_XX_012 is BPReentrancyGuard, BPPausable {
+    using BPSafeERC20 for IERC20Minimal;
+
+    /*//////////////////////////////////////////////////////////////
+                                ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    error BP_Unauthorized();
+    error BP_Zero();
