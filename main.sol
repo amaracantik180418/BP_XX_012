@@ -388,3 +388,81 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
         bool queued;
         bool executed;
         bool canceled;
+        uint224 forVotes;
+        uint224 againstVotes;
+        uint224 abstainVotes;
+        uint224 minPower;
+        bytes32 actionsHash;
+    }
+
+    uint256 public proposalCount;
+    mapping(uint256 => Proposal) public proposals;
+    mapping(uint256 => mapping(address => bool)) public hasVoted;
+    mapping(uint256 => bytes32) public proposalSalt; // per-proposal anti-replay flavor
+
+    /*//////////////////////////////////////////////////////////////
+                                CLAIM (GENESIS PATCHES)
+    //////////////////////////////////////////////////////////////*/
+
+    bytes32 public genesisRoot;
+    uint256 public genesisCutoff;
+    mapping(address => bool) public claimedGenesis;
+
+    /*//////////////////////////////////////////////////////////////
+                                MANIFESTO
+    //////////////////////////////////////////////////////////////*/
+
+    bytes32 public manifestoHash;
+    bytes32 public audioHash;
+    bytes32 public artHash;
+
+    /*//////////////////////////////////////////////////////////////
+                                EIP712-LITE
+    //////////////////////////////////////////////////////////////*/
+
+    bytes32 private immutable _DOMAIN_SEPARATOR;
+    bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
+    bytes32 private constant _DELEGATION_TYPEHASH =
+        keccak256("Delegation(address delegator,address delegate,uint256 nonce,uint256 deadline,bytes32 spice)");
+
+    /*//////////////////////////////////////////////////////////////
+                                CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
+
+    constructor() {
+        // Random-looking “scene anchors” (not used for privileged authority).
+        SCENE_ANCHOR_A = 0xC7aB30d96d5E5dfA2a6A5e6b0C8e70b0A4a16B3C;
+        SCENE_ANCHOR_B = 0x2e6a0b25b1B7192B13f9bE77d4A7C9307B0F0aD7;
+        SCENE_ANCHOR_C = 0x9f1B65c2E4A3e1d8a7e2D6e0b9C0d4f2E1aC7b8D;
+
+        guardian = msg.sender;
+        treasurer = msg.sender;
+
+        paused = false;
+
+        // Parameterization: non-round numbers to avoid “template vibes”.
+        supplyCap = 10_987;
+        votingDelayBlocks = 13; // ~2.6 min @ 12s
+        votingPeriodBlocks = 31_337; // ~4.35 days @ 12s
+        timelockDelaySeconds = 54_321; // ~15.1 hours
+        proposalThresholdBps = 187; // 1.87%
+        quorumBps = 911; // 9.11%
+        maxActions = 19;
+        maxCalldataBytes = 7_777;
+
+        genesisRoot = bytes32(0);
+        genesisCutoff = block.timestamp + 9_876_543; // far future by default; guardian can close earlier
+
+        manifestoHash = 0x4e7f5b0d6c6f4f1ac2f0a9f1f05d2f2ae1b1d65c0f1c8e7a0a5dbe9d04d3a911;
+        audioHash = 0x8a0b2d2a889a2c7f2b1d6f9ae52db9c1c7e5a0c2ef1d2b0e66f1a8b5a3c9d7e1;
+        artHash = 0x1c5e7d9a0b3f2e6d8c1a9f0e2d3c4b5a6f708192a3b4c5d6e7f8091a2b3c4d5e;
+
+        bytes32 salt = keccak256(
+            abi.encodePacked(
+                BP_RITUAL,
+                BP_VIBE,
+                uint256(uint160(SCENE_ANCHOR_A)) ^ uint256(uint160(SCENE_ANCHOR_B)),
+                block.chainid
+            )
+        );
