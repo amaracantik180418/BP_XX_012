@@ -778,3 +778,81 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
         uint256 hi = ckpts.length;
         uint256 lo = 0;
         while (lo < hi) {
+            uint256 mid = (lo + hi) >> 1;
+            if (ckpts[mid].fromBlock > blockNumber) hi = mid;
+            else lo = mid + 1;
+        }
+        return lo == 0 ? 0 : ckpts[lo - 1].votes;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                GOVERNANCE: CREATE
+    //////////////////////////////////////////////////////////////*/
+
+    function propose(bytes32 topic, Action[] calldata actions, bytes32 salt)
+        external
+        whenNotPaused
+        returns (uint256 proposalId)
+    {
+        if (topic == bytes32(0)) revert BP_Zero();
+        if (actions.length == 0 || actions.length > maxActions) revert BP_BadArray();
+        if (salt == bytes32(0)) revert BP_Zero();
+
+        uint256 proposerVotes = getVotes(msg.sender);
+        uint256 totalVotes = getPastTotalVotes(block.number - 1);
+        uint256 threshold = (totalVotes * proposalThresholdBps) / _BASIS;
+        threshold = BPMath.max(threshold, 1); // always require at least 1 unit
+        if (proposerVotes < threshold) revert BP_Quorum();
+
+        (bytes32 aHash, uint256 bytesTotal) = _hashActions(actions);
+        if (bytesTotal > maxCalldataBytes) revert BP_BadRange();
+
+        unchecked {
+            proposalId = ++proposalCount;
+        }
+
+        uint64 start = uint64(block.number + votingDelayBlocks);
+        uint64 end = uint64(uint256(start) + votingPeriodBlocks);
+        uint224 minPower = uint224(threshold);
+
+        proposals[proposalId] = Proposal({
+            author: msg.sender,
+            topic: topic,
+            voteStart: start,
+            voteEnd: end,
+            eta: 0,
+            queued: false,
+            executed: false,
+            canceled: false,
+            forVotes: 0,
+            againstVotes: 0,
+            abstainVotes: 0,
+            minPower: minPower,
+            actionsHash: aHash
+        });
+
+        proposalSalt[proposalId] = salt;
+
+        emit BP_Proposed(proposalId, msg.sender, topic, start, end, 0, threshold);
+    }
+
+    function _hashActions(Action[] calldata actions) internal pure returns (bytes32 h, uint256 bytesTotal) {
+        bytes32[] memory leafs = new bytes32[](actions.length);
+        for (uint256 i = 0; i < actions.length; i++) {
+            Action calldata a = actions[i];
+            if (a.target == address(0)) revert BP_BadTarget();
+            bytesTotal += a.data.length;
+            leafs[i] = keccak256(abi.encode(a.target, a.value, keccak256(a.data)));
+        }
+        h = keccak256(abi.encodePacked(leafs));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                GOVERNANCE: VOTE (QUADRATIC)
+    //////////////////////////////////////////////////////////////*/
+
+    // support: 0=against, 1=for, 2=abstain
+    function castVote(uint256 proposalId, uint8 support, uint256 salt) external whenNotPaused {
+        Proposal storage p = proposals[proposalId];
+        if (p.author == address(0)) revert BP_NotFound();
+        if (support > 2) revert BP_BadRange();
