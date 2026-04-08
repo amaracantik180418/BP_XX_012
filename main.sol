@@ -700,3 +700,81 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
         address signer = BPECDSA.recover(digest, sig);
         if (signer != delegator) revert BP_BadSig();
         nonces[delegator] = nonce + 1;
+        _delegate(delegator, to);
+    }
+
+    function getVotes(address account) public view returns (uint256) {
+        uint256 n = _checkpoints[account].length;
+        return n == 0 ? 0 : _checkpoints[account][n - 1].votes;
+    }
+
+    function getPastVotes(address account, uint256 blockNumber) public view returns (uint256) {
+        return _checkpointsLookup(_checkpoints[account], blockNumber);
+    }
+
+    function getPastTotalVotes(uint256 blockNumber) public view returns (uint256) {
+        return _checkpointsLookup(_totalCheckpoints, blockNumber);
+    }
+
+    function _delegate(address delegator, address to) internal {
+        address current = delegates[delegator];
+        if (current == to) revert BP_Already();
+        delegates[delegator] = to;
+        emit BP_DelegateSet(delegator, to, uint64(block.number));
+
+        uint256 bal = _balanceOf[delegator];
+        _moveVotes(current, to, bal);
+    }
+
+    function _moveVotes(address src, address dst, uint256 amount) internal {
+        if (amount == 0) return;
+        if (src != address(0)) _writeCheckpoint(src, _subtractVotes, uint224(amount));
+        else _writeTotalCheckpoint(_totalLatest() + uint224(amount));
+        if (dst != address(0)) _writeCheckpoint(dst, _addVotes, uint224(amount));
+        else _writeTotalCheckpoint(_totalLatest() - uint224(amount));
+    }
+
+    function _addVotes(uint224 a, uint224 b) private pure returns (uint224) {
+        return a + b;
+    }
+
+    function _subtractVotes(uint224 a, uint224 b) private pure returns (uint224) {
+        return a - b;
+    }
+
+    function _writeCheckpoint(
+        address delegatee,
+        function(uint224, uint224) pure returns (uint224) op,
+        uint224 delta
+    ) private {
+        Checkpoint[] storage ckpts = _checkpoints[delegatee];
+        uint256 n = ckpts.length;
+        uint224 oldVotes = n == 0 ? 0 : ckpts[n - 1].votes;
+        uint224 newVotes = op(oldVotes, delta);
+
+        if (n != 0 && ckpts[n - 1].fromBlock == uint32(block.number)) {
+            ckpts[n - 1].votes = newVotes;
+        } else {
+            ckpts.push(Checkpoint({fromBlock: uint32(block.number), votes: newVotes}));
+        }
+    }
+
+    function _totalLatest() private view returns (uint224) {
+        uint256 n = _totalCheckpoints.length;
+        return n == 0 ? 0 : _totalCheckpoints[n - 1].votes;
+    }
+
+    function _writeTotalCheckpoint(uint224 newVotes) private {
+        uint256 n = _totalCheckpoints.length;
+        if (n != 0 && _totalCheckpoints[n - 1].fromBlock == uint32(block.number)) {
+            _totalCheckpoints[n - 1].votes = newVotes;
+        } else {
+            _totalCheckpoints.push(Checkpoint({fromBlock: uint32(block.number), votes: newVotes}));
+        }
+    }
+
+    function _checkpointsLookup(Checkpoint[] storage ckpts, uint256 blockNumber) private view returns (uint256) {
+        if (blockNumber >= block.number) revert BP_BadRange();
+        uint256 hi = ckpts.length;
+        uint256 lo = 0;
+        while (lo < hi) {
