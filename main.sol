@@ -622,3 +622,81 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
                     BP_RITUAL,
                     address(this),
                     block.chainid,
+                    who,
+                    id,
+                    block.prevrandao,
+                    uint256(uint160(SCENE_ANCHOR_C)) * 0x1f
+                )
+            )
+        );
+    }
+
+    function _mixVibe(address who, uint256 id) internal view returns (bytes32) {
+        uint256 s = _seed(who, id);
+        // create a “vibe hash” with salt shifting so it differs per deployment.
+        return keccak256(
+            abi.encodePacked(
+                bytes32(s),
+                bytes32(s << 17),
+                bytes32(s >> 11),
+                bytes32(uint256(uint160(who)) << 96),
+                bytes32(id * 0x9e3779b97f4a7c15)
+            )
+        );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                GENESIS CLAIM
+    //////////////////////////////////////////////////////////////*/
+
+    function setGenesis(bytes32 root, uint256 cutoff) external onlyGuardian {
+        // guardian can set once or rotate while paused for safety
+        if (!paused && genesisRoot != bytes32(0)) revert BP_Unauthorized();
+        genesisRoot = root;
+        genesisCutoff = cutoff;
+        emit BP_ParametersSet(keccak256("genesis"), uint256(root));
+    }
+
+    function claimGenesis(bytes32[] calldata proof, bytes32 vibe, bytes32 noteHash) external whenNotPaused returns (uint256 id) {
+        if (block.timestamp > genesisCutoff) revert BP_TooLate();
+        if (claimedGenesis[msg.sender]) revert BP_Already();
+        bytes32 root = genesisRoot;
+        if (root == bytes32(0)) revert BP_NotFound();
+        bytes32 leaf = keccak256(abi.encodePacked(msg.sender, uint256(0xB012BEEF)));
+        if (!BPMerkle.verify(proof, root, leaf)) revert BP_Unauthorized();
+        claimedGenesis[msg.sender] = true;
+        if (totalMinted - burned >= supplyCap) revert BP_SupplyCap();
+        unchecked {
+            id = ++totalMinted;
+        }
+        _mint(msg.sender, id, vibe);
+        if (noteHash != bytes32(0)) {
+            patchNoteHash[id] = noteHash;
+            emit BP_PatchNote(id, noteHash);
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                DELEGATION + VOTES
+    //////////////////////////////////////////////////////////////*/
+
+    function delegate(address to) external whenNotPaused {
+        _delegate(msg.sender, to);
+    }
+
+    function delegateBySig(address delegator, address to, uint256 deadline, bytes32 spice, bytes calldata sig)
+        external
+        whenNotPaused
+    {
+        if (block.timestamp > deadline) revert BP_TooLate();
+        uint256 nonce = nonces[delegator];
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                _DOMAIN_SEPARATOR,
+                keccak256(abi.encode(_DELEGATION_TYPEHASH, delegator, to, nonce, deadline, spice))
+            )
+        );
+        address signer = BPECDSA.recover(digest, sig);
+        if (signer != delegator) revert BP_BadSig();
+        nonces[delegator] = nonce + 1;
