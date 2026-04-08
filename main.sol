@@ -544,3 +544,81 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
 
     function transferFrom(address, address, uint256) external pure {
         revert BP_Soulbound();
+    }
+
+    function safeTransferFrom(address, address, uint256) external pure {
+        revert BP_Soulbound();
+    }
+
+    function safeTransferFrom(address, address, uint256, bytes calldata) external pure {
+        revert BP_Soulbound();
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                PATCH MINT/BURN/NOTE
+    //////////////////////////////////////////////////////////////*/
+
+    function mintPatch(address to, bytes32 vibe, bytes32 noteHash) external whenNotPaused onlyGuardian returns (uint256 id) {
+        if (to == address(0)) revert BP_Zero();
+        if (totalMinted - burned >= supplyCap) revert BP_SupplyCap();
+        unchecked {
+            id = ++totalMinted;
+        }
+        _mint(to, id, vibe);
+        if (noteHash != bytes32(0)) {
+            patchNoteHash[id] = noteHash;
+            emit BP_PatchNote(id, noteHash);
+        }
+    }
+
+    function burnPatch(uint256 id) external whenNotPaused {
+        address owner_ = _ownerOf[id];
+        if (owner_ == address(0)) revert BP_NotFound();
+        if (msg.sender != owner_ && msg.sender != guardian) revert BP_Unauthorized();
+        _burn(id, owner_);
+    }
+
+    function setPatchNote(uint256 id, bytes32 noteHash) external whenNotPaused {
+        address owner_ = _ownerOf[id];
+        if (owner_ == address(0)) revert BP_NotFound();
+        if (msg.sender != owner_) revert BP_Unauthorized();
+        patchNoteHash[id] = noteHash;
+        emit BP_PatchNote(id, noteHash);
+    }
+
+    function _mint(address to, uint256 id, bytes32 vibe) internal {
+        if (_ownerOf[id] != address(0)) revert BP_Exists();
+        _ownerOf[id] = to;
+        unchecked {
+            _balanceOf[to] += 1;
+        }
+        patchVibe[id] = vibe == bytes32(0) ? _mixVibe(to, id) : vibe;
+        emit Transfer(address(0), to, id);
+
+        _moveVotes(address(0), delegates[to], 1);
+        emit BP_PatchMinted(to, id, _seed(to, id), patchVibe[id]);
+    }
+
+    function _burn(uint256 id, address owner_) internal {
+        delete _ownerOf[id];
+        delete _getApproved[id];
+        delete patchVibe[id];
+        delete patchNoteHash[id];
+        unchecked {
+            _balanceOf[owner_] -= 1;
+            burned += 1;
+        }
+        emit Transfer(owner_, address(0), id);
+        _moveVotes(delegates[owner_], address(0), 1);
+        emit BP_PatchBurned(owner_, id);
+    }
+
+    function _seed(address who, uint256 id) internal view returns (uint256) {
+        // deterministic pseudo-random for vibe; no security assumptions.
+        return uint256(
+            keccak256(
+                abi.encodePacked(
+                    BP_VIBE,
+                    BP_RITUAL,
+                    address(this),
+                    block.chainid,
