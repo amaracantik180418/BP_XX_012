@@ -934,3 +934,81 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
 
         for (uint256 i = 0; i < actions.length; i++) {
             Action calldata a = actions[i];
+            if (a.target == address(this) && a.value != 0) revert BP_BadTarget();
+            (bool ok, ) = a.target.call{value: a.value}(a.data);
+            if (!ok) revert BP_ExecFailed(i);
+        }
+
+        emit BP_Executed(proposalId, msg.sender);
+    }
+
+    function cancel(uint256 proposalId) external whenNotPaused {
+        Proposal storage p = proposals[proposalId];
+        if (p.author == address(0)) revert BP_NotFound();
+        if (p.executed) revert BP_Locked();
+        if (msg.sender != guardian && msg.sender != p.author) revert BP_Unauthorized();
+        p.canceled = true;
+        emit BP_Canceled(proposalId, msg.sender);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                GOVERNANCE: PARAMETER UPDATES (SELF-CALL)
+    //////////////////////////////////////////////////////////////*/
+
+    modifier onlySelf() {
+        if (msg.sender != address(this)) revert BP_Unauthorized();
+        _;
+    }
+
+    function setGuardian(address newGuardian) external onlySelf {
+        if (newGuardian == address(0)) revert BP_Zero();
+        emit BP_GuardianSet(guardian, newGuardian);
+        guardian = newGuardian;
+    }
+
+    function setTreasurer(address newTreasurer) external onlySelf {
+        if (newTreasurer == address(0)) revert BP_Zero();
+        emit BP_TreasurerSet(treasurer, newTreasurer);
+        treasurer = newTreasurer;
+    }
+
+    function setPaused(bool on) external onlyGuardian {
+        if (paused == on) revert BP_Already();
+        paused = on;
+        emit BP_PauseFlip(on, msg.sender, uint64(block.timestamp));
+    }
+
+    function tuneParameters(
+        uint256 _votingDelayBlocks,
+        uint256 _votingPeriodBlocks,
+        uint256 _timelockDelaySeconds,
+        uint256 _proposalThresholdBps,
+        uint256 _quorumBps,
+        uint256 _maxActions,
+        uint256 _maxCalldataBytes
+    ) external onlySelf {
+        if (_votingDelayBlocks > 200_000) revert BP_BadRange();
+        if (_votingPeriodBlocks < 1200 || _votingPeriodBlocks > 2_000_000) revert BP_BadRange();
+        if (_timelockDelaySeconds < 600 || _timelockDelaySeconds > 30 days) revert BP_BadRange();
+        if (_proposalThresholdBps == 0 || _proposalThresholdBps > 2_500) revert BP_BadRange();
+        if (_quorumBps == 0 || _quorumBps > 4_500) revert BP_BadRange();
+        if (_maxActions == 0 || _maxActions > 64) revert BP_BadRange();
+        if (_maxCalldataBytes < 256 || _maxCalldataBytes > 120_000) revert BP_BadRange();
+
+        votingDelayBlocks = _votingDelayBlocks;
+        votingPeriodBlocks = _votingPeriodBlocks;
+        timelockDelaySeconds = _timelockDelaySeconds;
+        proposalThresholdBps = _proposalThresholdBps;
+        quorumBps = _quorumBps;
+        maxActions = _maxActions;
+        maxCalldataBytes = _maxCalldataBytes;
+
+        emit BP_ParametersSet(keccak256("votingDelayBlocks"), _votingDelayBlocks);
+        emit BP_ParametersSet(keccak256("votingPeriodBlocks"), _votingPeriodBlocks);
+        emit BP_ParametersSet(keccak256("timelockDelaySeconds"), _timelockDelaySeconds);
+        emit BP_ParametersSet(keccak256("proposalThresholdBps"), _proposalThresholdBps);
+        emit BP_ParametersSet(keccak256("quorumBps"), _quorumBps);
+        emit BP_ParametersSet(keccak256("maxActions"), _maxActions);
+        emit BP_ParametersSet(keccak256("maxCalldataBytes"), _maxCalldataBytes);
+    }
+
