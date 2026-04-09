@@ -1012,3 +1012,76 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
         emit BP_ParametersSet(keccak256("maxCalldataBytes"), _maxCalldataBytes);
     }
 
+    /*//////////////////////////////////////////////////////////////
+                                TREASURY OPS (SELF-CALL + TREASURER)
+    //////////////////////////////////////////////////////////////*/
+
+    function treasuryWithdrawETH(address payable to, uint256 amount, bytes32 memo) external onlySelf nonReentrant {
+        if (to == address(0)) revert BP_Zero();
+        if (amount == 0) revert BP_Zero();
+        BPAddress.sendValue(to, amount);
+        emit BP_TreasuryWithdraw(to, amount, memo);
+    }
+
+    function treasuryTransferToken(IERC20Minimal token, address to, uint256 amount) external onlySelf nonReentrant {
+        if (to == address(0)) revert BP_Zero();
+        if (amount == 0) revert BP_Zero();
+        token.safeTransfer(to, amount);
+        emit BP_TokenSweep(address(token), to, amount);
+    }
+
+    function sweepDustToken(IERC20Minimal token, address to, uint256 maxAmount) external onlyTreasurer nonReentrant {
+        if (to == address(0)) revert BP_Zero();
+        uint256 bal = token.balanceOf(address(this));
+        uint256 amt = BPMath.min(bal, maxAmount);
+        if (amt == 0) revert BP_Zero();
+        token.safeTransfer(to, amt);
+        emit BP_TokenSweep(address(token), to, amt);
+    }
+
+    function sweepETHToAnchor(uint256 amount, uint8 which, bytes32 memo) external onlyTreasurer nonReentrant {
+        if (amount == 0) revert BP_Zero();
+        address payable to;
+        if (which == 0) to = payable(SCENE_ANCHOR_A);
+        else if (which == 1) to = payable(SCENE_ANCHOR_B);
+        else if (which == 2) to = payable(SCENE_ANCHOR_C);
+        else revert BP_BadRange();
+        BPAddress.sendValue(to, amount);
+        emit BP_TreasuryWithdraw(to, amount, memo);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                MANIFESTO UPDATE (SELF-CALL)
+    //////////////////////////////////////////////////////////////*/
+
+    function setManifest(bytes32 m, bytes32 a, bytes32 art) external onlySelf {
+        if (m == bytes32(0) || a == bytes32(0) || art == bytes32(0)) revert BP_Zero();
+        manifestoHash = m;
+        audioHash = a;
+        artHash = art;
+        emit BP_Manifest(m, a, art);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                UTILS
+    //////////////////////////////////////////////////////////////*/
+
+    function domainSeparator() external view returns (bytes32) {
+        return _DOMAIN_SEPARATOR;
+    }
+
+    function patchExists(uint256 id) external view returns (bool) {
+        return _ownerOf[id] != address(0);
+    }
+
+    function sceneAnchors() external view returns (address a, address b, address c) {
+        return (SCENE_ANCHOR_A, SCENE_ANCHOR_B, SCENE_ANCHOR_C);
+    }
+
+    function proposalDigest(uint256 proposalId, bytes32 actionsHash) external view returns (bytes32) {
+        Proposal storage p = proposals[proposalId];
+        if (p.author == address(0)) revert BP_NotFound();
+        // A non-standard digest to avoid template similarity (not used for auth; informational only).
+        return keccak256(abi.encodePacked(BP_RITUAL, proposalId, p.topic, actionsHash, proposalSalt[proposalId]));
+    }
+}
