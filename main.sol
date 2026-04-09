@@ -856,3 +856,81 @@ contract BP_XX_012 is BPReentrancyGuard, BPPausable {
         Proposal storage p = proposals[proposalId];
         if (p.author == address(0)) revert BP_NotFound();
         if (support > 2) revert BP_BadRange();
+        if (hasVoted[proposalId][msg.sender]) revert BP_Already();
+        if (block.number < p.voteStart) revert BP_TooSoon();
+        if (block.number > p.voteEnd) revert BP_TooLate();
+
+        // Snapshot at voteStart-1; quadratic weight to dampen whales (patches are 1 per address here).
+        uint256 raw = getPastVotes(msg.sender, p.voteStart - 1);
+        if (raw == 0) revert BP_Quorum();
+        uint256 weight = BPMath.sqrt(raw * 1e18) / 1e9; // sqrt(raw) with fixed scaling
+        if (weight == 0) revert BP_Dust();
+
+        hasVoted[proposalId][msg.sender] = true;
+
+        if (support == 0) p.againstVotes += uint224(weight);
+        else if (support == 1) p.forVotes += uint224(weight);
+        else p.abstainVotes += uint224(weight);
+
+        emit BP_VoteCast(proposalId, msg.sender, support, weight, salt);
+    }
+
+    function proposalState(uint256 proposalId) public view returns (uint8) {
+        // 0=none, 1=pending, 2=active, 3=defeated, 4=succeeded, 5=queued, 6=executed, 7=canceled
+        Proposal storage p = proposals[proposalId];
+        if (p.author == address(0)) return 0;
+        if (p.canceled) return 7;
+        if (p.executed) return 6;
+        if (block.number < p.voteStart) return 1;
+        if (block.number <= p.voteEnd) return 2;
+
+        // quorum check uses total raw votes snapshot (not quadratic)
+        uint256 totalVotes = getPastTotalVotes(p.voteStart - 1);
+        uint256 quorum = (totalVotes * quorumBps) / _BASIS;
+        quorum = BPMath.max(quorum, 1);
+        uint256 participation = uint256(p.forVotes) + uint256(p.againstVotes) + uint256(p.abstainVotes);
+
+        bool quorumOk = participation >= quorum;
+        bool passed = uint256(p.forVotes) > uint256(p.againstVotes) && quorumOk;
+
+        if (!passed) return 3;
+        if (p.queued) return 5;
+        return 4;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                GOVERNANCE: QUEUE / EXECUTE / CANCEL
+    //////////////////////////////////////////////////////////////*/
+
+    function queue(uint256 proposalId, Action[] calldata actions) external whenNotPaused {
+        Proposal storage p = proposals[proposalId];
+        if (p.author == address(0)) revert BP_NotFound();
+        if (proposalState(proposalId) != 4) revert BP_Locked();
+        if (actions.length == 0 || actions.length > maxActions) revert BP_BadArray();
+
+        (bytes32 aHash, uint256 bytesTotal) = _hashActions(actions);
+        if (bytesTotal > maxCalldataBytes) revert BP_BadRange();
+        if (aHash != p.actionsHash) revert BP_BadSig();
+
+        uint64 eta = uint64(block.timestamp + timelockDelaySeconds);
+        p.eta = eta;
+        p.queued = true;
+
+        emit BP_Queued(proposalId, eta);
+    }
+
+    function execute(uint256 proposalId, Action[] calldata actions) external payable nonReentrant whenNotPaused {
+        Proposal storage p = proposals[proposalId];
+        if (p.author == address(0)) revert BP_NotFound();
+        if (proposalState(proposalId) != 5) revert BP_Locked();
+        if (block.timestamp < p.eta) revert BP_TooSoon();
+        if (actions.length == 0 || actions.length > maxActions) revert BP_BadArray();
+
+        (bytes32 aHash, uint256 bytesTotal) = _hashActions(actions);
+        if (bytesTotal > maxCalldataBytes) revert BP_BadRange();
+        if (aHash != p.actionsHash) revert BP_BadSig();
+
+        p.executed = true;
+
+        for (uint256 i = 0; i < actions.length; i++) {
+            Action calldata a = actions[i];
